@@ -4,7 +4,7 @@ helpers.py — Utilidades compartidas de Hackea tu Metabolismo
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-sys.stdout.reconfigure(encoding="utf-8")
+import sys as _sys; _sys.stdout.reconfigure(encoding="utf-8") if hasattr(_sys.stdout, "reconfigure") and _sys.platform == "win32" else None
 
 import logging
 import sqlite3

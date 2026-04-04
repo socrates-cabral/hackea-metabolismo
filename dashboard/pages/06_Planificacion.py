@@ -5,7 +5,7 @@ Sprint S9 · i18n S13
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-sys.stdout.reconfigure(encoding="utf-8")
+import sys as _sys; _sys.stdout.reconfigure(encoding="utf-8") if hasattr(_sys.stdout, "reconfigure") and _sys.platform == "win32" else None
 
 import streamlit as st
 from src.db.queries import get_objetivo, get_o_crear_usuario_activo, get_usuario
