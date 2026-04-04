@@ -15,8 +15,9 @@ from dotenv import load_dotenv
 load_dotenv(dotenv_path=Path(__file__).parent.parent.parent / ".env")
 
 BASE_DIR = Path(__file__).parent.parent.parent
-DB_PATH  = BASE_DIR / os.getenv("DB_PATH", "data/hackea_metabolismo.db")
-LOG_DIR  = BASE_DIR / "logs"
+_IS_CLOUD = not os.access(BASE_DIR, os.W_OK)
+DB_PATH  = Path("/tmp/hackea_metabolismo.db") if _IS_CLOUD else BASE_DIR / os.getenv("DB_PATH", "data/hackea_metabolismo.db")
+LOG_DIR  = Path("/tmp/logs") if _IS_CLOUD else BASE_DIR / "logs"
 
 
 def setup_logging(nombre: str) -> logging.Logger:
