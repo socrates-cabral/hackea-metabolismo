@@ -3,18 +3,25 @@ app.py — Hackea tu Metabolismo con IA
 Puerto: 8505
 """
 import sys
+import traceback
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
-import sys as _sys; _sys.stdout.reconfigure(encoding="utf-8") if hasattr(_sys.stdout, "reconfigure") and _sys.platform == "win32" else None
+if sys.platform == "win32" and hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
 
-import streamlit as st
-from datetime import datetime
-from src.db.schema import inicializar_db, insertar_usuario_demo
-from src.db.queries import get_usuario, get_totales_dia, get_objetivo, get_peso_actual, get_o_crear_usuario_activo
-from src.utils.helpers import hoy
-from src.utils.i18n import t, selector_idioma_sidebar
-from src.utils.styles import inject_styles
-from src.utils.auth_guard import auth_badge
+try:
+    import streamlit as st
+    from datetime import datetime
+    from src.db.schema import inicializar_db, insertar_usuario_demo
+    from src.db.queries import get_usuario, get_totales_dia, get_objetivo, get_peso_actual, get_o_crear_usuario_activo
+    from src.utils.helpers import hoy
+    from src.utils.i18n import t, selector_idioma_sidebar
+    from src.utils.styles import inject_styles
+    from src.utils.auth_guard import auth_badge
+except Exception as e:
+    print(f"IMPORT ERROR: {e}", file=sys.stderr, flush=True)
+    traceback.print_exc(file=sys.stderr)
+    raise
 
 st.set_page_config(
     page_title="Hackea tu Metabolismo",
