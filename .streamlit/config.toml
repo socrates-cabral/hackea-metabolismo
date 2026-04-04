@@ -1,5 +1,4 @@
 [server]
-port = 8505
 headless = true
 
 [theme]
