@@ -169,6 +169,7 @@ st.markdown(t("dash.historial"))
 df_hist = get_historial_kcal(uid, dias=14)
 
 if not df_hist.empty:
+    df_hist["fecha"] = df_hist["fecha"].astype(str).str[:10]  # forzar YYYY-MM-DD
     colores = ["#22c55e" if abs(k - kcal_obj) <= kcal_obj * 0.10 else
                "#f59e0b" if abs(k - kcal_obj) <= kcal_obj * 0.20 else "#ef4444"
                for k in df_hist["kcal"]]
@@ -185,7 +186,7 @@ if not df_hist.empty:
         paper_bgcolor=BG, plot_bgcolor=BG_CARD,
         font=dict(color="#e2e8f0", size=11),
         margin=dict(l=20,r=20,t=20,b=40),
-        xaxis=dict(gridcolor=GRID),
+        xaxis=dict(gridcolor=GRID, type="category"),
         yaxis=dict(gridcolor=GRID, title="kcal"),
         height=280,
     )
