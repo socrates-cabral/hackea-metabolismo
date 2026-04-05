@@ -59,12 +59,28 @@ class _PGCursor:
         return dict(row).get("id") if row else None
 
 
+def _encode_pg_url(url: str) -> str:
+    """URL-encode la contraseña si contiene caracteres especiales."""
+    from urllib.parse import urlparse, quote, urlunparse
+    try:
+        p = urlparse(url)
+        if p.password and any(c in p.password for c in "@#%+!&"):
+            encoded = quote(p.password, safe="")
+            netloc = f"{p.username}:{encoded}@{p.hostname}"
+            if p.port:
+                netloc += f":{p.port}"
+            return urlunparse(p._replace(netloc=netloc))
+    except Exception:
+        pass
+    return url
+
+
 class _PGConn:
     """Conexión PostgreSQL que imita la interfaz de sqlite3."""
     def __init__(self, url: str):
         import psycopg2
         from psycopg2.extras import RealDictCursor
-        self._conn = psycopg2.connect(url, cursor_factory=RealDictCursor)
+        self._conn = psycopg2.connect(_encode_pg_url(url), cursor_factory=RealDictCursor)
         self._conn.autocommit = False
         self._is_pg = True
 
@@ -105,9 +121,12 @@ class _PGConn:
 # ── get_db() — retorna conexión correcta según entorno ───────
 
 def get_db():
-    """Retorna conexión SQLite (local) o PostgreSQL (Cloud)."""
+    """Retorna conexión PostgreSQL (Cloud) o SQLite (local/fallback)."""
     if DATABASE_URL:
-        return _PGConn(DATABASE_URL)
+        try:
+            return _PGConn(DATABASE_URL)
+        except Exception as e:
+            print(f"[WARN] PostgreSQL no disponible, fallback a SQLite: {e}", flush=True)
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
