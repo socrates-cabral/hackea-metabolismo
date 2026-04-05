@@ -60,19 +60,29 @@ class _PGCursor:
 
 
 def _encode_pg_url(url: str) -> str:
-    """URL-encode la contraseña si contiene caracteres especiales."""
-    from urllib.parse import urlparse, quote, urlunparse
+    """URL-encode la contraseña correctamente.
+    Usa rfind('@') para soportar '@' dentro de la contraseña."""
+    from urllib.parse import quote
     try:
-        p = urlparse(url)
-        if p.password and any(c in p.password for c in "@#%+!&"):
-            encoded = quote(p.password, safe="")
-            netloc = f"{p.username}:{encoded}@{p.hostname}"
-            if p.port:
-                netloc += f":{p.port}"
-            return urlunparse(p._replace(netloc=netloc))
+        if "://" not in url:
+            return url
+        scheme, rest = url.split("://", 1)
+        # El host empieza después del ÚLTIMO @ (la contraseña puede contener @)
+        at_idx = rest.rfind("@")
+        if at_idx == -1:
+            return url
+        credentials = rest[:at_idx]
+        host_part   = rest[at_idx + 1:]
+        # Separar user:password en el PRIMER :
+        colon_idx = credentials.find(":")
+        if colon_idx == -1:
+            return url
+        user     = credentials[:colon_idx]
+        password = credentials[colon_idx + 1:]
+        encoded  = quote(password, safe="")
+        return f"{scheme}://{user}:{encoded}@{host_part}"
     except Exception:
-        pass
-    return url
+        return url
 
 
 class _PGConn:
