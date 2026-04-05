@@ -10,14 +10,14 @@ if _sys.platform == "win32" and hasattr(_sys.stdout, "reconfigure"):
     _sys.stdout.reconfigure(encoding="utf-8")
 
 import streamlit as st
-from src.db.queries import insertar_alimento, get_o_crear_usuario_activo, get_totales_dia, get_objetivo
+from src.db.queries import insertar_alimento, get_totales_dia, get_objetivo
 from src.db.schema import inicializar_db
 from src.alimentacion.openfoodfacts import buscar_por_texto, buscar_por_barcode, ajustar_por_porcion
 from src.alimentacion.vision_ia import analizar_foto, resultado_a_registro
 from src.utils.helpers import hoy
 from src.utils.i18n import t, selector_idioma_sidebar
 from src.utils.styles import inject_styles
-from src.utils.auth_guard import auth_badge
+from src.utils.auth_guard import auth_badge, get_uid_activo
 
 st.set_page_config(page_title="Registro · Hackea", page_icon="🍽️", layout="wide")
 inject_styles()
@@ -26,7 +26,7 @@ selector_idioma_sidebar()
 auth_badge()
 
 inicializar_db()
-uid      = get_o_crear_usuario_activo()
+uid      = get_uid_activo()
 objetivo = get_objetivo(uid)
 totales  = get_totales_dia(uid)
 

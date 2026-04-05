@@ -10,13 +10,13 @@ if _sys.platform == "win32" and hasattr(_sys.stdout, "reconfigure"):
     _sys.stdout.reconfigure(encoding="utf-8")
 
 import streamlit as st
-from src.db.queries import get_objetivo, get_o_crear_usuario_activo, get_usuario
+from src.db.queries import get_objetivo, get_usuario
 from src.db.schema import inicializar_db
 from src.alimentacion.recetas_ia import generar_recetas, consolidar_lista_compras
 from src.utils.helpers import calcular_edad
 from src.utils.i18n import t, selector_idioma_sidebar
 from src.utils.styles import inject_styles
-from src.utils.auth_guard import auth_badge
+from src.utils.auth_guard import auth_badge, get_uid_activo
 
 st.set_page_config(page_title="Planificación · Hackea", page_icon="🍳", layout="wide")
 inject_styles()
@@ -25,7 +25,7 @@ selector_idioma_sidebar()
 auth_badge()
 
 inicializar_db()
-uid      = get_o_crear_usuario_activo()
+uid      = get_uid_activo()
 objetivo = get_objetivo(uid)
 usuario  = get_usuario(uid) or {}
 edad     = calcular_edad(usuario.get("fecha_nac","1985-01-01")) if usuario.get("fecha_nac") else 35

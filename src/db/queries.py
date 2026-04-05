@@ -48,6 +48,21 @@ def get_o_crear_usuario_activo() -> int:
     return row["id"] if row else 1
 
 
+def get_o_crear_usuario_por_email(email: str) -> int:
+    """Busca usuario por email; si no existe lo crea. Garantiza aislamiento multi-usuario."""
+    with get_db() as conn:
+        row = conn.execute("SELECT id FROM usuarios WHERE email=?", (email,)).fetchone()
+        if row:
+            return row["id"]
+        conn.execute("""
+            INSERT INTO usuarios (nombre, email, fecha_nac, sexo, altura_cm, objetivo, nivel_actividad)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (email.split("@")[0], email, "1990-01-01", "M", 170, "perder_grasa", "moderado"))
+        conn.commit()
+        row = conn.execute("SELECT last_insert_rowid() as id").fetchone()
+    return row["id"]
+
+
 # ── Objetivos ─────────────────────────────────────────────────
 
 def get_objetivo(uid: int) -> dict | None:

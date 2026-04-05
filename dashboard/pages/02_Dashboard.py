@@ -13,12 +13,11 @@ import streamlit as st
 import plotly.graph_objects as go
 from datetime import datetime
 from src.db.queries import (get_totales_dia, get_objetivo, get_alimentos_dia,
-                             get_historial_kcal, get_o_crear_usuario_activo,
-                             eliminar_alimento)
+                             get_historial_kcal, eliminar_alimento)
 from src.db.schema import inicializar_db
 from src.utils.i18n import t, selector_idioma_sidebar
 from src.utils.styles import inject_styles
-from src.utils.auth_guard import auth_badge
+from src.utils.auth_guard import auth_badge, get_uid_activo
 
 BG="#0a1628"; BG_CARD="#0d1f3c"; TEAL="#0f9d7a"; GRID="#1e3a5f"
 
@@ -29,7 +28,7 @@ selector_idioma_sidebar()
 auth_badge()
 
 inicializar_db()
-uid      = get_o_crear_usuario_activo()
+uid      = get_uid_activo()
 objetivo = get_objetivo(uid)
 totales  = get_totales_dia(uid)
 
