@@ -183,7 +183,7 @@ CREATE INDEX IF NOT EXISTS idx_mediciones_fecha ON mediciones(usuario_id, fecha)
 
 def inicializar_db() -> None:
     with get_db() as conn:
-        is_sb = isinstance(conn, type(conn)) and "Supabase" in str(type(conn))
+        is_sb = hasattr(conn, "_sb")  # _SupabaseConn tiene _sb; sqlite3.Connection no
 
         if is_sb:
             # Supabase: crear tablas manualmente mediante REST API

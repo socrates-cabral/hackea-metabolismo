@@ -36,7 +36,7 @@ def _get_supabase_url() -> str | None:
         return None
 
 
-SUPABASE_URL = _get_supabase_url()
+SUPABASE_URL = _get_supabase_url()  # módulo-level para backward compat con imports
 DATABASE_URL = None  # Ya no usamos PostgreSQL directo
 
 
@@ -159,33 +159,58 @@ class _SupabaseConn:
         return _SupabaseCursor(result.data if result else [])
 
     def _execute_delete(self, sql: str, params=None) -> _SupabaseCursor:
-        """DELETE via REST API."""
+        """DELETE via REST API. Soporta múltiples condiciones AND en WHERE."""
         import re
         match = re.search(r"FROM\s+(\w+)\s+WHERE", sql, re.IGNORECASE)
         if not match:
             raise ValueError(f"DELETE inválido: {sql}")
 
         tabla = match.group(1)
-        where_match = re.search(r"WHERE\s+(.*?)(?:;|$)", sql, re.IGNORECASE)
-        where_col = where_match.group(1).split("=")[0].strip() if where_match else "id"
+        where_match = re.search(r"WHERE\s+(.*?)(?:;|$)", sql, re.IGNORECASE | re.DOTALL)
 
-        if not params:
+        if not where_match or not params:
             raise ValueError("DELETE requiere parámetros WHERE")
 
-        self._sb.table(tabla).delete().eq(where_col, params[0]).execute()
+        parts = re.split(r"\s+AND\s+", where_match.group(1).strip(), flags=re.IGNORECASE)
+        cols = [p.split("=")[0].strip() for p in parts]
+
+        query = self._sb.table(tabla).delete()
+        for col, val in zip(cols, params):
+            query = query.eq(col, val)
+        query.execute()
         return _SupabaseCursor([])
 
     def _filter_where(self, data: list, sql: str, params: list) -> list:
-        """Filtra resultados por WHERE clause."""
+        """Filtra resultados por WHERE clause. Soporta AND y operadores >=, <=, =."""
         import re
-        where_match = re.search(r"WHERE\s+(.*?)(?:;|$)", sql, re.IGNORECASE)
-        if not where_match:
+        where_match = re.search(r"WHERE\s+(.*?)(?:\s+ORDER|\s+GROUP|\s+LIMIT|;|$)",
+                                sql, re.IGNORECASE | re.DOTALL)
+        if not where_match or not params:
             return data
 
-        where_clause = where_match.group(1)
-        col = where_clause.split("=")[0].strip()
+        parts = re.split(r"\s+AND\s+", where_match.group(1).strip(), flags=re.IGNORECASE)
+        conditions = []
+        for part in parts:
+            part = part.strip()
+            for op in (">=", "<=", "!=", "=", ">", "<"):
+                if op in part:
+                    col = part.split(op)[0].strip()
+                    conditions.append((col, op))
+                    break
 
-        return [row for row in data if row.get(col) == params[0]]
+        for (col, op), val in zip(conditions, params):
+            val_s = str(val)
+            if op == "=":
+                data = [r for r in data if str(r.get(col, "")) == val_s]
+            elif op == ">=":
+                data = [r for r in data if str(r.get(col, "")) >= val_s]
+            elif op == "<=":
+                data = [r for r in data if str(r.get(col, "")) <= val_s]
+            elif op == ">":
+                data = [r for r in data if str(r.get(col, "")) > val_s]
+            elif op == "<":
+                data = [r for r in data if str(r.get(col, "")) < val_s]
+        return data
 
     def executescript(self, script: str):
         """Ejecuta múltiples statements."""
@@ -212,7 +237,8 @@ class _SupabaseConn:
 
 def get_db():
     """Retorna conexión Supabase REST API (Cloud) o SQLite (local/fallback)."""
-    if SUPABASE_URL:
+    sb_url = _get_supabase_url()  # evaluación en runtime para capturar st.secrets
+    if sb_url:
         try:
             return _SupabaseConn()
         except Exception as e:

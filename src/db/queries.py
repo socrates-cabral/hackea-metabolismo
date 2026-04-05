@@ -150,14 +150,18 @@ def get_alimentos_dia(uid: int, fecha: str | None = None) -> pd.DataFrame:
 def get_totales_dia(uid: int, fecha: str | None = None) -> dict:
     fecha = fecha or hoy()
     with get_db() as conn:
-        row = conn.execute("""
-            SELECT COALESCE(SUM(kcal),0) as kcal,
-                   COALESCE(SUM(proteina_g),0) as proteina_g,
-                   COALESCE(SUM(cho_g),0) as cho_g,
-                   COALESCE(SUM(grasa_g),0) as grasa_g
-            FROM registros_alimentos WHERE usuario_id=? AND fecha=?
-        """, (uid, fecha)).fetchone()
-    return dict(row) if row else {"kcal": 0, "proteina_g": 0, "cho_g": 0, "grasa_g": 0}
+        df = read_sql(
+            "SELECT * FROM registros_alimentos WHERE usuario_id=? AND fecha=?",
+            conn, params=(uid, fecha),
+        )
+    if df.empty:
+        return {"kcal": 0, "proteina_g": 0, "cho_g": 0, "grasa_g": 0}
+    return {
+        "kcal":       float(df["kcal"].sum()),
+        "proteina_g": float(df["proteina_g"].sum()),
+        "cho_g":      float(df["cho_g"].sum()),
+        "grasa_g":    float(df["grasa_g"].sum()),
+    }
 
 
 def eliminar_alimento(registro_id: int) -> None:
@@ -228,13 +232,11 @@ def get_sueno_semanas(uid: int, semanas: int = 4) -> pd.DataFrame:
 def get_historial_kcal(uid: int, dias: int = 30) -> pd.DataFrame:
     desde = (datetime.today() - timedelta(days=dias)).strftime("%Y-%m-%d")
     with get_db() as conn:
-        return read_sql("""
-            SELECT fecha,
-                   SUM(kcal) as kcal,
-                   SUM(proteina_g) as proteina_g,
-                   SUM(cho_g) as cho_g,
-                   SUM(grasa_g) as grasa_g
-            FROM registros_alimentos
-            WHERE usuario_id=? AND fecha>=?
-            GROUP BY fecha ORDER BY fecha
-        """, conn, params=(uid, desde))
+        df = read_sql(
+            "SELECT * FROM registros_alimentos WHERE usuario_id=? AND fecha>=? ORDER BY fecha",
+            conn, params=(uid, desde),
+        )
+    if df.empty:
+        return df
+    return (df.groupby("fecha")[["kcal", "proteina_g", "cho_g", "grasa_g"]]
+              .sum().reset_index().sort_values("fecha"))
