@@ -5,7 +5,9 @@ Sprint S12
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-import sys as _sys; _sys.stdout.reconfigure(encoding="utf-8") if hasattr(_sys.stdout, "reconfigure") and _sys.platform == "win32" else None
+import sys as _sys
+if _sys.platform == "win32" and hasattr(_sys.stdout, "reconfigure"):
+    _sys.stdout.reconfigure(encoding="utf-8")
 
 import streamlit as st
 from src.db.supabase_client import iniciar_sesion, registrar_usuario, recuperar_password
