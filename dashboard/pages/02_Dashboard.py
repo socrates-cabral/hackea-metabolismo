@@ -59,6 +59,8 @@ with col_anillo:
     rest_pct = 100 - pct
     color_anillo = TEAL if pct <= 100 else "#ef4444"
 
+    st.markdown(f"<div style='text-align:center;color:#e2e8f0;font-size:0.9rem;font-weight:600;margin-bottom:4px;'>{t('dash.kcal_dia')}</div>", unsafe_allow_html=True)
+
     fig_anillo = go.Figure(go.Pie(
         values=[pct, rest_pct],
         hole=0.70,
@@ -74,7 +76,6 @@ with col_anillo:
     fig_anillo.update_layout(
         paper_bgcolor=BG, plot_bgcolor=BG,
         margin=dict(l=10,r=10,t=10,b=10), height=260,
-        title=dict(text=t("dash.kcal_dia"), font=dict(color="#e2e8f0", size=14), x=0.5),
     )
     st.plotly_chart(fig_anillo, use_container_width=True)
     st.metric(t("kpi.restante"), f"{rest:.0f} kcal")
