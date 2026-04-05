@@ -1,6 +1,6 @@
 """
 helpers.py — Utilidades compartidas de Hackea tu Metabolismo
-Soporta SQLite (local) y PostgreSQL (Streamlit Cloud via Supabase)
+Soporta SQLite (local) y Supabase REST API (cloud, sin puerto 5432)
 """
 import sys
 from pathlib import Path
@@ -24,119 +24,199 @@ DB_PATH   = Path("/tmp/hackea_metabolismo.db") if _IS_CLOUD else BASE_DIR / os.g
 LOG_DIR   = Path("/tmp/logs") if _IS_CLOUD else BASE_DIR / "logs"
 
 
-def _get_database_url() -> str | None:
-    """Retorna DATABASE_URL desde env o st.secrets."""
-    url = os.getenv("DATABASE_URL")
+def _get_supabase_url() -> str | None:
+    """Retorna SUPABASE_URL desde env o st.secrets."""
+    url = os.getenv("SUPABASE_URL")
     if url:
         return url
     try:
         import streamlit as st
-        return st.secrets.get("DATABASE_URL", None)
+        return st.secrets.get("SUPABASE_URL", None)
     except Exception:
         return None
 
 
-DATABASE_URL = _get_database_url()
+SUPABASE_URL = _get_supabase_url()
+DATABASE_URL = None  # Ya no usamos PostgreSQL directo
 
 
-# ── Adaptador PostgreSQL ──────────────────────────────────────
+# ── Adaptador Supabase REST API ────────────────────────────────
 
-class _PGCursor:
-    """Cursor wrapper que imita sqlite3.Row (acceso por nombre de columna)."""
-    def __init__(self, cur):
-        self._cur = cur
+class _SupabaseCursor:
+    """Cursor que emula sqlite3.Row (acceso por nombre de columna)."""
+    def __init__(self, data: list | dict):
+        self._data = data if isinstance(data, list) else ([data] if data else [])
+        self._index = 0
 
     def fetchone(self):
-        row = self._cur.fetchone()
-        return dict(row) if row else None
+        if self._data and self._index < len(self._data):
+            return self._data[self._index]
+        return None
 
     def fetchall(self):
-        return [dict(r) for r in self._cur.fetchall()]
+        return self._data
 
     @property
     def lastrowid(self):
-        row = self._cur.fetchone()
-        return dict(row).get("id") if row else None
+        # Para INSERTs, retorna el ID de la fila insertada
+        if self._data:
+            return self._data[0].get("id") if isinstance(self._data[0], dict) else None
+        return None
 
 
-def _encode_pg_url(url: str) -> str:
-    """URL-encode la contraseña correctamente.
-    Usa rfind('@') para soportar '@' dentro de la contraseña."""
-    from urllib.parse import quote
-    try:
-        if "://" not in url:
-            return url
-        scheme, rest = url.split("://", 1)
-        # El host empieza después del ÚLTIMO @ (la contraseña puede contener @)
-        at_idx = rest.rfind("@")
-        if at_idx == -1:
-            return url
-        credentials = rest[:at_idx]
-        host_part   = rest[at_idx + 1:]
-        # Separar user:password en el PRIMER :
-        colon_idx = credentials.find(":")
-        if colon_idx == -1:
-            return url
-        user     = credentials[:colon_idx]
-        password = credentials[colon_idx + 1:]
-        encoded  = quote(password, safe="")
-        return f"{scheme}://{user}:{encoded}@{host_part}"
-    except Exception:
-        return url
+class _SupabaseConn:
+    """Conexión Supabase REST API que emula interfaz sqlite3."""
+    def __init__(self):
+        from src.db.supabase_client import get_supabase
+        self._sb = get_supabase()
+        self._is_pg = False
 
+    def execute(self, sql: str, params=None) -> _SupabaseCursor:
+        """Ejecuta SQL mapeando a operaciones REST API de Supabase."""
+        sql_upper = sql.strip().upper()
 
-class _PGConn:
-    """Conexión PostgreSQL que imita la interfaz de sqlite3."""
-    def __init__(self, url: str):
-        import psycopg2
-        from psycopg2.extras import RealDictCursor
-        self._conn = psycopg2.connect(_encode_pg_url(url), cursor_factory=RealDictCursor)
-        self._conn.autocommit = False
-        self._is_pg = True
+        # ── SELECT ──────────────────────────────────────────
+        if sql_upper.startswith("SELECT"):
+            return self._execute_select(sql, params)
 
-    def execute(self, sql: str, params=None) -> _PGCursor:
-        sql_pg = sql.replace("?", "%s")
-        # Agrega RETURNING id automáticamente a INSERTs para obtener el ID
-        if (sql_pg.strip().upper().startswith("INSERT")
-                and "RETURNING" not in sql_pg.upper()):
-            sql_pg = sql_pg.rstrip().rstrip(";") + " RETURNING id"
-        cur = self._conn.cursor()
-        cur.execute(sql_pg, params or ())
-        return _PGCursor(cur)
+        # ── INSERT ──────────────────────────────────────────
+        elif sql_upper.startswith("INSERT"):
+            return self._execute_insert(sql, params)
+
+        # ── UPDATE ──────────────────────────────────────────
+        elif sql_upper.startswith("UPDATE"):
+            return self._execute_update(sql, params)
+
+        # ── DELETE ──────────────────────────────────────────
+        elif sql_upper.startswith("DELETE"):
+            return self._execute_delete(sql, params)
+
+        else:
+            raise NotImplementedError(f"SQL no soportado: {sql[:50]}")
+
+    def _execute_select(self, sql: str, params=None) -> _SupabaseCursor:
+        """SELECT via REST API."""
+        import re
+        # Parseador simple: SELECT * FROM tabla WHERE id=?
+        match = re.search(r"FROM\s+(\w+)", sql, re.IGNORECASE)
+        if not match:
+            return _SupabaseCursor([])
+
+        tabla = match.group(1)
+        result = self._sb.table(tabla).select("*").execute()
+        data = result.data if result else []
+
+        # Aplicar WHERE clause si existe
+        if "WHERE" in sql.upper() and params:
+            data = self._filter_where(data, sql, params)
+
+        return _SupabaseCursor(data)
+
+    def _execute_insert(self, sql: str, params=None) -> _SupabaseCursor:
+        """INSERT via REST API."""
+        import re
+        # Parsear: INSERT INTO tabla (col1, col2, ...) VALUES (?, ?, ...)
+        match = re.search(r"INTO\s+(\w+)\s*\((.*?)\)\s*VALUES", sql, re.IGNORECASE | re.DOTALL)
+        if not match:
+            raise ValueError(f"INSERT inválido: {sql}")
+
+        tabla = match.group(1)
+        columnas = [c.strip() for c in match.group(2).split(",")]
+
+        if not params or len(params) != len(columnas):
+            raise ValueError(f"Parámetros no coinciden con columnas")
+
+        datos = dict(zip(columnas, params))
+        result = self._sb.table(tabla).insert(datos).execute()
+
+        return _SupabaseCursor(result.data if result else [])
+
+    def _execute_update(self, sql: str, params=None) -> _SupabaseCursor:
+        """UPDATE via REST API."""
+        import re
+        # Parsear: UPDATE tabla SET col1=?, col2=? WHERE id=?
+        match = re.search(r"UPDATE\s+(\w+)\s+SET\s+(.*?)\s+WHERE", sql, re.IGNORECASE | re.DOTALL)
+        if not match:
+            raise ValueError(f"UPDATE inválido: {sql}")
+
+        tabla = match.group(1)
+        set_clause = match.group(2)
+
+        # Extraer columnas del SET
+        cols = [c.split("=")[0].strip() for c in set_clause.split(",")]
+
+        # Extraer WHERE clause
+        where_match = re.search(r"WHERE\s+(.*?)(?:;|$)", sql, re.IGNORECASE)
+        where_col = where_match.group(1).split("=")[0].strip() if where_match else "id"
+
+        if not params or len(params) != len(cols) + 1:
+            raise ValueError(f"Parámetros inválidos")
+
+        datos = dict(zip(cols, params[:-1]))
+        where_val = params[-1]
+
+        result = self._sb.table(tabla).update(datos).eq(where_col, where_val).execute()
+        return _SupabaseCursor(result.data if result else [])
+
+    def _execute_delete(self, sql: str, params=None) -> _SupabaseCursor:
+        """DELETE via REST API."""
+        import re
+        match = re.search(r"FROM\s+(\w+)\s+WHERE", sql, re.IGNORECASE)
+        if not match:
+            raise ValueError(f"DELETE inválido: {sql}")
+
+        tabla = match.group(1)
+        where_match = re.search(r"WHERE\s+(.*?)(?:;|$)", sql, re.IGNORECASE)
+        where_col = where_match.group(1).split("=")[0].strip() if where_match else "id"
+
+        if not params:
+            raise ValueError("DELETE requiere parámetros WHERE")
+
+        self._sb.table(tabla).delete().eq(where_col, params[0]).execute()
+        return _SupabaseCursor([])
+
+    def _filter_where(self, data: list, sql: str, params: list) -> list:
+        """Filtra resultados por WHERE clause."""
+        import re
+        where_match = re.search(r"WHERE\s+(.*?)(?:;|$)", sql, re.IGNORECASE)
+        if not where_match:
+            return data
+
+        where_clause = where_match.group(1)
+        col = where_clause.split("=")[0].strip()
+
+        return [row for row in data if row.get(col) == params[0]]
 
     def executescript(self, script: str):
-        cur = self._conn.cursor()
+        """Ejecuta múltiples statements."""
         for stmt in [s.strip() for s in script.split(";") if s.strip()]:
-            cur.execute(stmt)
-        self._conn.commit()
+            self.execute(stmt)
 
     def commit(self):
-        self._conn.commit()
+        """Operaciones Supabase REST se commitean automáticamente."""
+        pass
 
     def cursor(self):
-        """Expone cursor nativo para pandas.read_sql_query."""
-        return self._conn.cursor()
+        """Retorna self para compatibilidad con pandas."""
+        return self
 
     def __enter__(self):
         return self
 
     def __exit__(self, exc_type, *args):
-        if exc_type:
-            self._conn.rollback()
-        else:
-            self._conn.commit()
-        self._conn.close()
+        # Supabase REST API no necesita cleanup
+        pass
 
 
 # ── get_db() — retorna conexión correcta según entorno ───────
 
 def get_db():
-    """Retorna conexión PostgreSQL (Cloud) o SQLite (local/fallback)."""
-    if DATABASE_URL:
+    """Retorna conexión Supabase REST API (Cloud) o SQLite (local/fallback)."""
+    if SUPABASE_URL:
         try:
-            return _PGConn(DATABASE_URL)
+            return _SupabaseConn()
         except Exception as e:
-            print(f"[WARN] PostgreSQL no disponible, fallback a SQLite: {e}", flush=True)
+            print(f"[WARN] Supabase no disponible, fallback a SQLite: {e}", flush=True)
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
@@ -146,10 +226,13 @@ def get_db():
 
 
 def read_sql(sql: str, conn, params=None) -> pd.DataFrame:
-    """pandas.read_sql_query compatible con sqlite3 y psycopg2."""
-    if hasattr(conn, "_is_pg") and conn._is_pg:
-        sql_pg = sql.replace("?", "%s")
-        return pd.read_sql_query(sql_pg, conn._conn, params=params)
+    """pandas.read_sql_query compatible con sqlite3 y Supabase REST API."""
+    if isinstance(conn, _SupabaseConn):
+        # Usar Supabase REST API
+        cursor = conn.execute(sql, params)
+        data = cursor.fetchall()
+        return pd.DataFrame(data) if data else pd.DataFrame()
+    # SQLite
     return pd.read_sql_query(sql, conn, params=params)
 
 

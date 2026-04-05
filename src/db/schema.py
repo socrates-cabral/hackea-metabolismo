@@ -8,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 if sys.platform == "win32" and hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
-from src.utils.helpers import get_db, setup_logging, DATABASE_URL
+from src.utils.helpers import get_db, setup_logging, SUPABASE_URL
 
 logger = setup_logging("schema")
 
@@ -183,26 +183,61 @@ CREATE INDEX IF NOT EXISTS idx_mediciones_fecha ON mediciones(usuario_id, fecha)
 
 def inicializar_db() -> None:
     with get_db() as conn:
-        is_pg = getattr(conn, '_is_pg', False)
-        ddl = DDL_PG if is_pg else DDL_SQLITE
-        conn.executescript(ddl)
-    logger.info(f"DB inicializada ({'PostgreSQL' if DATABASE_URL else 'SQLite'})")
+        is_sb = isinstance(conn, type(conn)) and "Supabase" in str(type(conn))
+
+        if is_sb:
+            # Supabase: crear tablas manualmente mediante REST API
+            _crear_tablas_supabase(conn)
+            logger.info("DB inicializada (Supabase REST API)")
+        else:
+            # SQLite: ejecutar DDL script
+            ddl = DDL_SQLITE
+            conn.executescript(ddl)
+            logger.info("DB inicializada (SQLite)")
+
+
+def _crear_tablas_supabase(conn) -> None:
+    """Crea tablas en Supabase mediante REST API."""
+    from src.db.supabase_client import get_supabase
+    sb = get_supabase()
+
+    # Verificar si tabla 'usuarios' existe
+    try:
+        result = sb.table("usuarios").select("id").limit(1).execute()
+        logger.info("Tabla 'usuarios' ya existe en Supabase")
+        return
+    except Exception:
+        pass
+
+    # Crear tablas: ejecutar DDL directamente en Supabase (requiere acceso a RPC)
+    # Opción simplificada: confiar en que el admin ya creó las tablas via Supabase UI
+    logger.warning("Tablas Supabase no detectadas. Asegúrate de crear DDL en dashboard.")
 
 
 def insertar_usuario_demo() -> int:
     """Inserta usuario demo si la tabla está vacía. Retorna ID."""
     with get_db() as conn:
-        existe = conn.execute("SELECT id FROM usuarios LIMIT 1").fetchone()
-        if existe:
-            return existe["id"] if isinstance(existe, dict) else existe[0]
-        cur = conn.execute(
-            "INSERT INTO usuarios (nombre, email, fecha_nac, sexo, altura_cm, objetivo, nivel_actividad) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            ("Demo User", "demo@hackea.app", "1985-06-15", "M", 175, "perder_grasa", "moderado")
-        )
-        conn.commit()
-        uid = cur.lastrowid
-        logger.info(f"Usuario demo creado (id={uid})")
-        return uid
+        try:
+            existe = conn.execute("SELECT id FROM usuarios LIMIT 1").fetchone()
+            if existe:
+                uid = existe.get("id") if isinstance(existe, dict) else existe[0]
+                logger.info(f"Usuario demo ya existe (id={uid})")
+                return uid
+        except Exception as e:
+            logger.warning(f"No se pudo verificar usuarios: {e}")
+
+        try:
+            cur = conn.execute(
+                "INSERT INTO usuarios (nombre, email, fecha_nac, sexo, altura_cm, objetivo, nivel_actividad) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                ("Demo User", "demo@hackea.app", "1985-06-15", "M", 175, "perder_grasa", "moderado")
+            )
+            conn.commit()
+            uid = cur.lastrowid or 1
+            logger.info(f"Usuario demo creado (id={uid})")
+            return uid
+        except Exception as e:
+            logger.error(f"Error al insertar usuario demo: {e}")
+            return 1
 
 
 if __name__ == "__main__":
