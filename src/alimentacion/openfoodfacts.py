@@ -85,21 +85,24 @@ def buscar_por_texto(query: str, max_resultados: int = 8) -> list[dict]:
 
 
 def buscar_por_barcode(barcode: str) -> dict | None:
-    """Busca un producto por código de barras."""
-    try:
-        resp = requests.get(
-            f"{PRODUCT_URL}/{barcode}.json",
-            params={"fields": "product_name,brands,nutriments,serving_size,code"},
-            timeout=TIMEOUT,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        if data.get("status") == 1 and data.get("product"):
-            return _extraer_nutrientes(data["product"])
-        return None
-    except Exception as e:
-        logger.error(f"Error barcode {barcode}: {e}")
-        return None
+    """Busca un producto por código de barras.
+    Intenta primero en Chile (cl), luego en la base mundial."""
+    campos = "product_name,brands,nutriments,serving_size,code"
+    endpoints = [
+        f"https://cl.openfoodfacts.org/api/v2/product/{barcode}.json",
+        f"{PRODUCT_URL}/{barcode}.json",
+    ]
+    for url in endpoints:
+        try:
+            resp = requests.get(url, params={"fields": campos}, timeout=TIMEOUT)
+            resp.raise_for_status()
+            data = resp.json()
+            if data.get("status") == 1 and data.get("product"):
+                logger.info(f"Barcode {barcode} encontrado en {url}")
+                return _extraer_nutrientes(data["product"])
+        except Exception as e:
+            logger.warning(f"Barcode {barcode} no encontrado en {url}: {e}")
+    return None
 
 
 def ajustar_por_porcion(nutrientes_100g: dict, gramos: float) -> dict:

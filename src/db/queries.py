@@ -1,14 +1,16 @@
 """
 queries.py — CRUD operations para Hackea tu Metabolismo
+Compatible con SQLite (local) y PostgreSQL (Supabase Cloud)
 """
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-import sys as _sys; _sys.stdout.reconfigure(encoding="utf-8") if hasattr(_sys.stdout, "reconfigure") and _sys.platform == "win32" else None
+if sys.platform == "win32" and hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
 
 import pandas as pd
 from datetime import datetime, timedelta
-from src.utils.helpers import get_db, hoy
+from src.utils.helpers import get_db, read_sql, hoy
 
 
 # ── Usuario ───────────────────────────────────────────────────
@@ -25,27 +27,30 @@ def upsert_usuario(datos: dict) -> int:
         if existe:
             conn.execute("""
                 UPDATE usuarios SET nombre=?, fecha_nac=?, sexo=?, altura_cm=?,
-                objetivo=?, nivel_actividad=?, updated_at=datetime('now','localtime')
+                objetivo=?, nivel_actividad=?
                 WHERE id=?
             """, (datos["nombre"], datos["fecha_nac"], datos["sexo"],
                   datos["altura_cm"], datos["objetivo"], datos["nivel_actividad"],
                   datos.get("id", 1)))
+            conn.commit()
+            return datos["id"]
         else:
-            conn.execute("""
+            cur = conn.execute("""
                 INSERT INTO usuarios (nombre, fecha_nac, sexo, altura_cm, objetivo, nivel_actividad)
                 VALUES (?, ?, ?, ?, ?, ?)
             """, (datos["nombre"], datos["fecha_nac"], datos["sexo"],
                   datos["altura_cm"], datos["objetivo"], datos["nivel_actividad"]))
-        conn.commit()
-        row = conn.execute("SELECT last_insert_rowid() as id").fetchone()
-    return datos.get("id", row["id"])
+            conn.commit()
+            return cur.lastrowid
 
 
 def get_o_crear_usuario_activo() -> int:
-    """Retorna el ID del único usuario activo (dev mode)."""
+    """Retorna el ID del único usuario activo (dev mode / sin login)."""
     with get_db() as conn:
         row = conn.execute("SELECT id FROM usuarios ORDER BY id LIMIT 1").fetchone()
-    return row["id"] if row else 1
+    if row:
+        return row["id"] if isinstance(row, dict) else row[0]
+    return 1
 
 
 def get_o_crear_usuario_por_email(email: str) -> int:
@@ -53,14 +58,13 @@ def get_o_crear_usuario_por_email(email: str) -> int:
     with get_db() as conn:
         row = conn.execute("SELECT id FROM usuarios WHERE email=?", (email,)).fetchone()
         if row:
-            return row["id"]
-        conn.execute("""
+            return row["id"] if isinstance(row, dict) else row[0]
+        cur = conn.execute("""
             INSERT INTO usuarios (nombre, email, fecha_nac, sexo, altura_cm, objetivo, nivel_actividad)
             VALUES (?, ?, ?, ?, ?, ?, ?)
         """, (email.split("@")[0], email, "1990-01-01", "M", 170, "perder_grasa", "moderado"))
         conn.commit()
-        row = conn.execute("SELECT last_insert_rowid() as id").fetchone()
-    return row["id"]
+        return cur.lastrowid
 
 
 # ── Objetivos ─────────────────────────────────────────────────
@@ -101,7 +105,7 @@ def insertar_medicion(uid: int, datos: dict) -> None:
 def get_mediciones(uid: int, dias: int = 90) -> pd.DataFrame:
     desde = (datetime.today() - timedelta(days=dias)).strftime("%Y-%m-%d")
     with get_db() as conn:
-        return pd.read_sql_query(
+        return read_sql(
             "SELECT * FROM mediciones WHERE usuario_id=? AND fecha>=? ORDER BY fecha",
             conn, params=(uid, desde),
         )
@@ -113,7 +117,7 @@ def get_peso_actual(uid: int) -> float | None:
             "SELECT peso_kg FROM mediciones WHERE usuario_id=? AND peso_kg IS NOT NULL ORDER BY fecha DESC LIMIT 1",
             (uid,)
         ).fetchone()
-    return row["peso_kg"] if row else None
+    return (row["peso_kg"] if isinstance(row, dict) else row[0]) if row else None
 
 
 # ── Registro alimentos ────────────────────────────────────────
@@ -137,7 +141,7 @@ def insertar_alimento(uid: int, datos: dict) -> None:
 def get_alimentos_dia(uid: int, fecha: str | None = None) -> pd.DataFrame:
     fecha = fecha or hoy()
     with get_db() as conn:
-        return pd.read_sql_query(
+        return read_sql(
             "SELECT * FROM registros_alimentos WHERE usuario_id=? AND fecha=? ORDER BY created_at",
             conn, params=(uid, fecha),
         )
@@ -153,7 +157,7 @@ def get_totales_dia(uid: int, fecha: str | None = None) -> dict:
                    COALESCE(SUM(grasa_g),0) as grasa_g
             FROM registros_alimentos WHERE usuario_id=? AND fecha=?
         """, (uid, fecha)).fetchone()
-    return dict(row)
+    return dict(row) if row else {"kcal": 0, "proteina_g": 0, "cho_g": 0, "grasa_g": 0}
 
 
 def eliminar_alimento(registro_id: int) -> None:
@@ -180,7 +184,7 @@ def insertar_ejercicio(uid: int, datos: dict) -> None:
 def get_ejercicio_dia(uid: int, fecha: str | None = None) -> pd.DataFrame:
     fecha = fecha or hoy()
     with get_db() as conn:
-        return pd.read_sql_query(
+        return read_sql(
             "SELECT * FROM registros_ejercicio WHERE usuario_id=? AND fecha=? ORDER BY created_at",
             conn, params=(uid, fecha),
         )
@@ -189,7 +193,7 @@ def get_ejercicio_dia(uid: int, fecha: str | None = None) -> pd.DataFrame:
 def get_ejercicio_semana(uid: int) -> pd.DataFrame:
     desde = (datetime.today() - timedelta(days=7)).strftime("%Y-%m-%d")
     with get_db() as conn:
-        return pd.read_sql_query(
+        return read_sql(
             "SELECT * FROM registros_ejercicio WHERE usuario_id=? AND fecha>=? ORDER BY fecha",
             conn, params=(uid, desde),
         )
@@ -213,7 +217,7 @@ def insertar_sueno(uid: int, datos: dict) -> None:
 def get_sueno_semanas(uid: int, semanas: int = 4) -> pd.DataFrame:
     desde = (datetime.today() - timedelta(weeks=semanas)).strftime("%Y-%m-%d")
     with get_db() as conn:
-        return pd.read_sql_query(
+        return read_sql(
             "SELECT * FROM registros_sueno WHERE usuario_id=? AND fecha>=? ORDER BY fecha",
             conn, params=(uid, desde),
         )
@@ -224,7 +228,7 @@ def get_sueno_semanas(uid: int, semanas: int = 4) -> pd.DataFrame:
 def get_historial_kcal(uid: int, dias: int = 30) -> pd.DataFrame:
     desde = (datetime.today() - timedelta(days=dias)).strftime("%Y-%m-%d")
     with get_db() as conn:
-        return pd.read_sql_query("""
+        return read_sql("""
             SELECT fecha,
                    SUM(kcal) as kcal,
                    SUM(proteina_g) as proteina_g,
