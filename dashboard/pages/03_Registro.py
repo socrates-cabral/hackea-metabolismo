@@ -210,8 +210,8 @@ with tab_barcode:
                 st.info(f"📦 Porción del envase: **{porcion_str}** ({porcion_sugerida:.0f} g)")
 
             gramos = st.number_input(
-                t("reg.gramos"), 5.0, 2000.0,
-                value=porcion_sugerida, step=5.0, key="g_bc"
+                t("reg.gramos"), 0.5, 2000.0,
+                value=max(0.5, porcion_sugerida), step=5.0, key="g_bc"
             )
 
             # Vista previa ajustada
