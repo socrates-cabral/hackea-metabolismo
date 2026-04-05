@@ -170,7 +170,7 @@ st.markdown(t("dash.historial"))
 df_hist = get_historial_kcal(uid, dias=14)
 
 if not df_hist.empty:
-    df_hist["fecha"] = pd.to_datetime(df_hist["fecha"]).dt.strftime("%d/%m %H:%M")
+    df_hist["fecha"] = df_hist["fecha"].astype(str).str[:10]
     colores = ["#22c55e" if abs(k - kcal_obj) <= kcal_obj * 0.10 else
                "#f59e0b" if abs(k - kcal_obj) <= kcal_obj * 0.20 else "#ef4444"
                for k in df_hist["kcal"]]
