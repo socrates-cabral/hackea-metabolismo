@@ -10,6 +10,7 @@ if _sys.platform == "win32" and hasattr(_sys.stdout, "reconfigure"):
     _sys.stdout.reconfigure(encoding="utf-8")
 
 import streamlit as st
+import pandas as pd
 import plotly.graph_objects as go
 from datetime import datetime
 from src.db.queries import (get_totales_dia, get_objetivo, get_alimentos_dia,
@@ -169,7 +170,7 @@ st.markdown(t("dash.historial"))
 df_hist = get_historial_kcal(uid, dias=14)
 
 if not df_hist.empty:
-    df_hist["fecha"] = df_hist["fecha"].astype(str).str[:10]  # forzar YYYY-MM-DD
+    df_hist["fecha"] = pd.to_datetime(df_hist["fecha"]).dt.strftime("%d/%m %H:%M")
     colores = ["#22c55e" if abs(k - kcal_obj) <= kcal_obj * 0.10 else
                "#f59e0b" if abs(k - kcal_obj) <= kcal_obj * 0.20 else "#ef4444"
                for k in df_hist["kcal"]]
