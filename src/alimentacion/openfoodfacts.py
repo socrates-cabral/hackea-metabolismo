@@ -18,6 +18,7 @@ BASE_URL    = "https://world.openfoodfacts.org"
 SEARCH_URL  = f"{BASE_URL}/cgi/search.pl"
 PRODUCT_URL = f"{BASE_URL}/api/v2/product"
 TIMEOUT     = 8
+HEADERS     = {"User-Agent": "HackeaMetabolismo/1.0 (https://github.com/socrates-cabral/hackea-metabolismo)"}
 
 
 def _parsear_porcion_g(serving_size_str: str) -> float | None:
@@ -59,7 +60,7 @@ def _extraer_nutrientes(producto: dict) -> dict:
 def buscar_por_texto(query: str, max_resultados: int = 8) -> list[dict]:
     """Busca alimentos por nombre. Retorna lista de dicts con nutrientes por 100g."""
     try:
-        resp = requests.get(SEARCH_URL, params={
+        resp = requests.get(SEARCH_URL, headers=HEADERS, params={
             "search_terms": query,
             "search_simple": 1,
             "action": "process",
@@ -94,7 +95,7 @@ def buscar_por_barcode(barcode: str) -> dict | None:
     ]
     for url in endpoints:
         try:
-            resp = requests.get(url, params={"fields": campos}, timeout=TIMEOUT)
+            resp = requests.get(url, headers=HEADERS, params={"fields": campos}, timeout=TIMEOUT)
             resp.raise_for_status()
             data = resp.json()
             if data.get("status") == 1 and data.get("product"):
