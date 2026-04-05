@@ -182,8 +182,9 @@ CREATE INDEX IF NOT EXISTS idx_mediciones_fecha ON mediciones(usuario_id, fecha)
 
 
 def inicializar_db() -> None:
-    ddl = DDL_PG if DATABASE_URL else DDL_SQLITE
     with get_db() as conn:
+        is_pg = getattr(conn, '_is_pg', False)
+        ddl = DDL_PG if is_pg else DDL_SQLITE
         conn.executescript(ddl)
     logger.info(f"DB inicializada ({'PostgreSQL' if DATABASE_URL else 'SQLite'})")
 
