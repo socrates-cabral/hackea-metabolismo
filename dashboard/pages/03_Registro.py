@@ -171,14 +171,55 @@ with tab_foto:
         # ── Ajustar y confirmar ───────────────────────────────
         st.divider()
         st.markdown(t("reg.ajustar"))
-        col_adj1, col_adj2 = st.columns(2)
-        with col_adj1:
-            kcal_conf = st.number_input(t("macro.kcal"), value=float(kcal_media), step=10.0)
-        with col_adj2:
+
+        # Peso estimado por la IA (suma de porciones)
+        porciones_ia = resultado.get("porciones_g", [])
+        peso_ia = float(sum(porciones_ia)) if porciones_ia else 0.0
+
+        col_peso, col_kcal, col_btn = st.columns([1, 1, 1])
+        with col_peso:
+            usar_balanza = st.checkbox("⚖️ Tengo balanza", value=False, key="usar_balanza")
+            if usar_balanza:
+                peso_real = st.number_input(
+                    "Peso real (g)", 1.0, 2000.0,
+                    value=max(1.0, peso_ia) if peso_ia > 0 else 100.0,
+                    step=1.0, key="peso_balanza",
+                    help=f"IA estimó ~{peso_ia:.0f}g. Ingresa el peso de tu balanza para mayor precisión."
+                )
+                # Escalar macros según peso real vs peso IA
+                if peso_ia > 0:
+                    factor = peso_real / peso_ia
+                    kcal_ajustada = round(kcal_media * factor, 1)
+                    prot_aj  = round(resultado.get("proteina_g", 0) * factor, 1)
+                    cho_aj   = round(resultado.get("carbohidrato_g", 0) * factor, 1)
+                    grasa_aj = round(resultado.get("grasa_g", 0) * factor, 1)
+                    st.caption(f"Factor: ×{factor:.2f} → {kcal_ajustada:.0f} kcal")
+                else:
+                    kcal_ajustada = kcal_media
+                    prot_aj  = resultado.get("proteina_g", 0)
+                    cho_aj   = resultado.get("carbohidrato_g", 0)
+                    grasa_aj = resultado.get("grasa_g", 0)
+            else:
+                peso_real    = peso_ia
+                kcal_ajustada = kcal_media
+                prot_aj  = resultado.get("proteina_g", 0)
+                cho_aj   = resultado.get("carbohidrato_g", 0)
+                grasa_aj = resultado.get("grasa_g", 0)
+
+        with col_kcal:
+            kcal_conf = st.number_input(t("macro.kcal"), value=float(kcal_ajustada), step=10.0)
+
+        with col_btn:
             st.markdown("<br>", unsafe_allow_html=True)
             if st.button(t("reg.confirmar"), use_container_width=True):
                 reg = resultado_a_registro(resultado, momento)
-                reg["kcal"]  = kcal_conf
+                reg["kcal"]      = kcal_conf
+                reg["proteina_g"] = prot_aj
+                reg["cho_g"]     = cho_aj
+                reg["grasa_g"]   = grasa_aj
+                if usar_balanza and peso_real > 0:
+                    reg["porcion_g"] = peso_real
+                    reg["notas"]     = (reg.get("notas") or "") + f" [balanza:{peso_real:.0f}g]"
                 reg["fecha"] = fecha.strftime("%Y-%m-%d")
                 insertar_alimento(uid, reg)
                 st.session_state.pop("vision_resultado", None)
