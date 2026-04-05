@@ -88,6 +88,11 @@ with tab_foto:
     with col_upload:
         foto = st.file_uploader(t("reg.foto_upload"), type=["jpg","jpeg","png","webp"])
         if foto:
+            # Limpiar resultado anterior si se sube una foto nueva
+            foto_id = f"{foto.name}_{foto.size}"
+            if st.session_state.get("vision_foto_id") != foto_id:
+                st.session_state.pop("vision_resultado", None)
+                st.session_state["vision_foto_id"] = foto_id
             st.image(foto, caption="Tu plato", use_container_width=True)
 
     if foto:
